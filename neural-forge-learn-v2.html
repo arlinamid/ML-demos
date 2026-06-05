@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>NEURAL FORGE V2 — Szám- és betűfelismerés</title>
+<meta name="description" content="Interaktív neurális háló demó kézírás-, szám- és betűfelismeréssel, élő tanítással és magyar magyarázatokkal." />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="NEURAL FORGE V2 — szám- és betűfelismerés élő tanítással" />
+<meta property="og:description" content="Rajzolj számot vagy nagybetűt, nézd meg a 14x14-es bemenetet, a 36-os softmax kimenetet, a loss-görbét és a háló rétegeit." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="NEURAL FORGE V2 — szám- és betűfelismerés élő tanítással" />
+<meta name="twitter:description" content="Interaktív neurális háló demó magyar magyarázatokkal, 0-9 és A-Z osztályokkal." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --bg:#04060c; --ink:#cfe6ff; --ink-dim:#6f88a6;
+    --blue:#2fb4ff; --cyan:#67f0ff; --amber:#ff9a3c;
+    --panel:rgba(8,16,28,.66); --brd:rgba(90,170,255,.22);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:var(--bg)}
+  body{font-family:'JetBrains Mono',monospace;color:var(--ink);-webkit-font-smoothing:antialiased}
+  #scene{position:fixed;inset:0;display:block}
+
+  .grain,.scan{position:fixed;inset:0;pointer-events:none;z-index:5}
+  .grain{opacity:.05;mix-blend-mode:screen;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>")}
+  .scan{background:repeating-linear-gradient(to bottom,rgba(255,255,255,.025) 0 1px,transparent 1px 3px);opacity:.4}
+  .vignette{position:fixed;inset:0;pointer-events:none;z-index:4;background:radial-gradient(120% 120% at 50% 45%,transparent 55%,rgba(0,0,0,.72) 100%)}
+  .corner{position:fixed;width:30px;height:30px;z-index:9;pointer-events:none;border-color:var(--brd);border-style:solid;border-width:0}
+  .corner.tl{top:14px;left:14px;border-top-width:1px;border-left-width:1px}
+  .corner.tr{top:14px;right:14px;border-top-width:1px;border-right-width:1px}
+  .corner.bl{bottom:14px;left:14px;border-bottom-width:1px;border-left-width:1px}
+  .corner.br{bottom:14px;right:14px;border-bottom-width:1px;border-right-width:1px}
+
+  .hud{position:fixed;z-index:10}
+  .topbar{top:0;left:0;right:0;display:flex;align-items:flex-start;justify-content:space-between;padding:20px 24px;pointer-events:none}
+  .brand h1{font-family:'Chakra Petch',sans-serif;font-weight:700;font-size:20px;letter-spacing:.4em;color:#eaf6ff;text-shadow:0 0 18px rgba(47,180,255,.55)}
+  .brand h1 b{color:var(--amber);text-shadow:0 0 18px rgba(255,154,60,.5)}
+  .brand .sub{margin-top:6px;font-size:10px;letter-spacing:.32em;color:var(--ink-dim);text-transform:uppercase}
+  .topmeta{display:flex;align-items:flex-start;gap:14px}
+  .helpbtn{pointer-events:auto;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan);background:rgba(14,35,56,.72);border:1px solid rgba(103,240,255,.36);border-radius:6px;padding:8px 10px;cursor:pointer;transition:.15s;box-shadow:0 10px 28px rgba(0,0,0,.32)}
+  .helpbtn:hover{background:rgba(36,78,112,.85);color:#fff;border-color:var(--cyan);box-shadow:0 0 18px rgba(103,240,255,.22)}
+  .stat{text-align:right;font-size:10.5px;line-height:1.8;color:var(--ink-dim);letter-spacing:.05em}
+  .stat .v{color:var(--cyan);font-weight:700}.stat .v.am{color:var(--amber)}
+
+  .panel{position:fixed;z-index:10;background:var(--panel);border:1px solid var(--brd);border-radius:10px;backdrop-filter:blur(11px);box-shadow:0 18px 50px rgba(0,0,0,.55);padding:14px;max-height:calc(100vh - 112px);overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(103,240,255,.25) transparent}
+  .panel h2{font-family:'Chakra Petch',sans-serif;font-size:11px;letter-spacing:.24em;color:#dff0ff;text-transform:uppercase;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+  .panel h2::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan)}
+  .panelIntro,.miniExplain{font-size:9.5px;line-height:1.55;color:var(--ink-dim);letter-spacing:.03em}
+  .panelIntro{margin:-3px 0 10px}
+  .miniExplain{margin-top:9px;border-top:1px solid var(--brd);padding-top:8px}
+  .miniExplain b,.labelbar b{color:var(--cyan);font-weight:700}
+  .labelbar{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:8px 0 6px;font-size:8.5px;line-height:1.35;color:var(--ink-dim);letter-spacing:.13em;text-transform:uppercase}
+  .labelbar span:last-child{color:var(--cyan);white-space:nowrap}
+  .hintline{font-size:8.5px;line-height:1.45;color:var(--ink-dim);letter-spacing:.06em;margin-top:5px}
+  .hintline b{color:var(--amber)}
+
+  /* draw panel */
+  #drawPanel{bottom:20px;left:20px;width:280px}
+  #pad{width:100%;height:auto;background:#02040a;border:1px solid var(--brd);border-radius:8px;touch-action:none;cursor:crosshair;display:block}
+  .row{display:flex;gap:8px;margin-top:10px;align-items:center}
+  .btn{flex:1;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink);background:rgba(20,40,64,.7);border:1px solid var(--brd);border-radius:6px;padding:8px 4px;cursor:pointer;transition:.15s}
+  .btn:hover{background:rgba(40,84,128,.8);color:#fff}
+  .btn.warn{color:var(--amber);border-color:rgba(255,154,60,.4)}
+  .preview{display:flex;gap:10px;align-items:center;margin-top:10px}
+  #preview14{width:56px;height:56px;image-rendering:pixelated;border:1px solid var(--brd);border-radius:4px;background:#000}
+  .predbox{flex:1}
+  .predbox .lbl{font-size:9px;letter-spacing:.22em;color:var(--ink-dim);text-transform:uppercase}
+  .predbox .num{font-family:'Chakra Petch',sans-serif;font-size:40px;line-height:1;color:var(--amber);text-shadow:0 0 22px rgba(255,154,60,.6);font-weight:700}
+  .predbox .conf{font-size:10px;color:var(--cyan)}
+  .bars{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;margin-top:10px}
+  .bar{display:grid;grid-template-rows:12px 5px;gap:2px;min-width:0;align-items:end}
+  .bar .fill{width:100%;height:5px;background:linear-gradient(90deg,#1a3a5c,var(--cyan));border-radius:2px;transform:scaleX(var(--p,0));transform-origin:left center;transition:transform .12s,background .12s}
+  .bar.win .fill{background:linear-gradient(90deg,#7a4010,var(--amber))}
+  .bar .d{font-size:8px;color:var(--ink-dim);line-height:1;text-align:center;overflow:hidden}
+
+  .teach{margin-top:12px;border-top:1px solid var(--brd);padding-top:10px}
+  .teach .lbl{font-size:9px;letter-spacing:.16em;color:var(--ink-dim);text-transform:uppercase;display:flex;justify-content:space-between;align-items:center}
+  .teach .lbl button{background:none;border:none;color:var(--amber);font-size:9px;cursor:pointer;letter-spacing:.1em}
+  .digitbtns{display:grid;grid-template-columns:repeat(6,1fr);gap:3px;margin-top:7px}
+  .dbtn{font-family:'Chakra Petch',sans-serif;font-size:12px;color:var(--ink);background:rgba(20,40,64,.7);border:1px solid var(--brd);border-radius:4px;padding:5px 0;cursor:pointer;transition:.13s}
+  .dbtn:hover{background:var(--cyan);color:#021018;box-shadow:0 0 12px rgba(103,240,255,.5)}
+  .dbtn:active{transform:scale(.92)}
+  #teachStatus{font-size:9px;color:var(--cyan);margin-top:7px;min-height:11px;letter-spacing:.08em}
+
+  .srcrow{display:flex;gap:8px;margin-top:9px}
+  #srcInfo{font-size:9px;color:var(--ink-dim);margin-top:8px;letter-spacing:.05em}
+  #srcInfo b{color:var(--cyan)}
+  .btn.on{background:var(--blue);color:#021018;border-color:var(--blue)}
+
+  /* train panel */
+  #trainPanel{bottom:20px;right:20px;width:316px}
+  #chart{width:100%;height:auto;display:block;background:#02040a;border:1px solid var(--brd);border-radius:6px}
+  .metrics{display:flex;justify-content:space-between;margin-top:8px;font-size:10px;color:var(--ink-dim);letter-spacing:.04em}
+  .metrics .v{color:var(--cyan);font-weight:700}.metrics .v.am{color:var(--amber)}
+  .slider{display:flex;align-items:center;gap:8px;margin-top:9px;font-size:9.5px;color:var(--ink-dim);letter-spacing:.1em;text-transform:uppercase}
+  .slider input{flex:1;accent-color:var(--blue)}
+  .chartleg{display:flex;gap:14px;font-size:8.5px;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.14em;margin-top:6px}
+  .chartleg i{display:inline-block;width:14px;height:2px;vertical-align:middle;margin-right:5px}
+
+  .legend{position:fixed;z-index:9;left:50%;transform:translateX(-50%);bottom:18px;display:flex;gap:18px;font-size:9.5px;letter-spacing:.16em;color:var(--ink-dim);text-transform:uppercase;pointer-events:none}
+  .legend .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+  .legend .dot.b{background:var(--cyan);box-shadow:0 0 9px var(--cyan)}
+  .legend .dot.a{background:var(--amber);box-shadow:0 0 9px var(--amber)}
+
+  .networkGuide{position:fixed;z-index:9;top:104px;left:50%;transform:translateX(-50%);width:430px;max-width:calc(100vw - 690px);min-width:360px;background:rgba(6,14,25,.56);border:1px solid var(--brd);border-radius:10px;backdrop-filter:blur(9px);padding:12px 13px;box-shadow:0 18px 50px rgba(0,0,0,.38);pointer-events:none}
+  .networkGuide h2{font-family:'Chakra Petch',sans-serif;font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:#dff0ff;margin-bottom:8px}
+  .flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr auto 1fr;gap:6px;align-items:stretch}
+  .flow span{border:1px solid rgba(103,240,255,.19);border-radius:6px;padding:6px 6px;background:rgba(20,40,64,.42);font-size:8.3px;line-height:1.35;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.08em;text-align:center}
+  .flow b{display:block;color:var(--cyan);font-family:'Chakra Petch',sans-serif;font-size:11px;letter-spacing:.08em;margin-bottom:2px}
+  .flow i{align-self:center;color:var(--amber);font-style:normal;font-weight:700}
+  .guideText{margin-top:8px;font-size:9.2px;line-height:1.55;color:var(--ink-dim);letter-spacing:.02em}
+  .layerTags{position:fixed;z-index:9;left:50%;bottom:58px;transform:translateX(-50%);display:grid;grid-template-columns:repeat(4,max-content);gap:8px;pointer-events:none}
+  .layerTags span{font-size:8.5px;line-height:1.35;color:var(--ink-dim);letter-spacing:.12em;text-transform:uppercase;background:rgba(6,14,25,.62);border:1px solid var(--brd);border-radius:6px;padding:5px 7px;backdrop-filter:blur(7px)}
+  .layerTags b{color:var(--cyan);font-weight:700}
+
+  #loader{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:var(--bg);transition:opacity .7s;font-family:'Chakra Petch',sans-serif}
+  #loader.hide{opacity:0;pointer-events:none}
+  #loader .ring{width:54px;height:54px;border-radius:50%;border:2px solid rgba(47,180,255,.15);border-top-color:var(--cyan);animation:spin 1s linear infinite}
+  #loader p{font-size:11px;letter-spacing:.4em;color:var(--ink-dim);text-transform:uppercase}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .lil-gui{--background-color:rgba(8,16,28,.72);--widget-color:rgba(20,38,60,.8);--hover-color:rgba(40,80,120,.8);--focus-color:rgba(50,100,150,.9);--text-color:#bcd6f2;--title-background-color:rgba(12,24,40,.9);--title-text-color:#eaf6ff;--number-color:#67f0ff;--string-color:#ff9a3c;--font-family:'JetBrains Mono',monospace;--font-size:11px;--widget-height:22px;backdrop-filter:blur(10px);border:1px solid var(--brd);z-index:11}
+  .lil-gui.root>.title{letter-spacing:.2em;font-family:'Chakra Petch',sans-serif}
+
+  .modal{position:fixed;inset:0;z-index:100;display:none;align-items:flex-start;justify-content:center;background:rgba(2,5,10,.82);backdrop-filter:blur(5px);overflow-y:auto;padding:34px 18px}
+  .modal.on{display:flex}
+  .sheet{position:relative;width:min(780px,100%);background:linear-gradient(180deg,rgba(9,19,33,.96),rgba(5,10,18,.98));border:1px solid rgba(103,240,255,.28);border-radius:14px;box-shadow:0 28px 90px rgba(0,0,0,.78);padding:28px}
+  .sheet h3{font-family:'Chakra Petch',sans-serif;font-size:24px;letter-spacing:.16em;text-transform:uppercase;color:#f2fbff;margin-bottom:8px}
+  .sheet .subt{font-size:11px;line-height:1.6;color:var(--ink-dim);letter-spacing:.12em;text-transform:uppercase;margin-bottom:18px}
+  .sheet h4{font-family:'Chakra Petch',sans-serif;font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);margin:18px 0 7px;display:flex;align-items:center;gap:8px}
+  .sheet h4::before{content:'';width:16px;height:1px;background:var(--amber)}
+  .sheet p{font-size:13px;line-height:1.72;color:var(--ink);margin-bottom:8px}
+  .sheet p.k{color:var(--ink-dim)}
+  .sheet b{color:var(--cyan);font-weight:700}
+  .sheet .eq{font-family:'JetBrains Mono',monospace;font-size:12px;color:#eaf6ff;background:rgba(103,240,255,.07);border:1px solid rgba(103,240,255,.18);border-radius:8px;padding:10px 12px;margin:10px 0}
+  .closex{position:absolute;top:14px;right:14px;width:32px;height:32px;border-radius:8px;border:1px solid rgba(103,240,255,.3);background:rgba(20,40,64,.6);color:var(--ink);cursor:pointer;font-size:16px;line-height:1;transition:.15s}
+  .closex:hover{background:rgba(255,154,60,.18);border-color:var(--amber);color:#fff}
+
+  @media (max-width:820px){
+    #drawPanel{width:190px;bottom:12px;left:12px;padding:11px}
+    #trainPanel{width:214px;bottom:12px;right:12px;padding:11px}
+    .brand h1{font-size:14px;letter-spacing:.26em}.stat{font-size:9px}
+    .legend,.networkGuide,.layerTags,.helpbtn{display:none}
+    .panelIntro,.miniExplain,.hintline{font-size:8.5px}
+    .sheet{padding:22px 18px}.sheet h3{font-size:18px}
+  }
+  @media (max-width:1120px){
+    .networkGuide,.layerTags{display:none}
+  }
+</style>
+
+<script type="importmap">
+{ "imports": {
+  "three":"https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/",
+  "lil-gui":"https://unpkg.com/lil-gui@0.19.2/dist/lil-gui.esm.js"
+}}
+</script>
+</head>
+<body>
+
+<div id="loader"><div class="ring"></div><p>Hálózat inicializálása</p></div>
+<canvas id="scene"></canvas>
+<div class="grain"></div><div class="scan"></div><div class="vignette"></div>
+<div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
+
+<div class="hud topbar">
+    <div class="brand"><h1>NEURAL <b>FORGE</b> V2</h1><div class="sub">Szám- és betűfelismerés · élő tanulás · MLP 196·48·32·36</div></div>
+  <div class="topmeta">
+    <button class="helpbtn" id="helpBtn">Mély magyarázat</button>
+    <div class="stat">
+      Minták <span class="v" id="s-data">—</span><br>
+      Epoch <span class="v" id="s-epoch">0</span><br>
+      Loss <span class="v am" id="s-loss">—</span><br>
+      Pontosság <span class="v" id="s-acc">—</span><br>
+      FPS <span class="v" id="s-fps">—</span>
+    </div>
+  </div>
+</div>
+
+<div class="networkGuide">
+  <h2>Háló útvonala</h2>
+  <div class="flow">
+    <span><b>196</b>14×14 pixel</span><i>›</i>
+    <span><b>48</b>ReLU jegyek</span><i>›</i>
+    <span><b>32</b>ReLU kombináció</span><i>›</i>
+    <span><b>36</b>Softmax jel</span>
+  </div>
+  <div class="guideText">A fényes neuronok éppen aktívak. A cián vonal erősítő, a narancs gátló súlyt jelent; tanítás közben ezek a kapcsolatok mozdulnak el a kisebb hiba felé.</div>
+</div>
+
+<div class="layerTags">
+  <span><b>Bemenet</b> pixel-intenzitás</span>
+  <span><b>ReLU 1</b> vonásminták</span>
+  <span><b>ReLU 2</b> jel-jegyek</span>
+  <span><b>Kimenet</b> esélyek</span>
+</div>
+
+<!-- DRAW + RECOGNIZE -->
+<div class="panel" id="drawPanel">
+  <h2>Bemenet és felismerés</h2>
+  <p class="panelIntro">A vászonra húzott szám vagy nagybetű előbb középre igazított, normalizált 14×14-es jelvektorrá alakul.</p>
+  <div class="labelbar"><b>1. Nyers rajz</b><span>280×280 vászon</span></div>
+  <canvas id="pad" width="280" height="280"></canvas>
+  <div class="row">
+    <button class="btn warn" id="clearBtn">Törlés</button>
+  </div>
+  <div class="labelbar"><b>2. Előfeldolgozás</b><span>14×14 = 196 érték</span></div>
+  <div class="preview">
+    <canvas id="preview14" width="14" height="14"></canvas>
+    <div class="predbox">
+      <div class="lbl">Felismerve</div>
+      <div class="num" id="predNum">–</div>
+      <div class="conf" id="predConf">rajzolj jelet</div>
+    </div>
+  </div>
+  <div class="miniExplain"><b>Mit lát a gép?</b> Minden kis pixel 0 és 1 közötti szám. A világosabb pont nagyobb bemeneti érték, ezért a háló nem a “szép rajzot”, hanem a vonások sűrűségét és elhelyezkedését tanulja.</div>
+  <div class="labelbar"><b>3. Softmax kimenet</b><span>0-9 + A-Z</span></div>
+  <div class="bars" id="bars"></div>
+  <div class="hintline"><b>Olvasás:</b> a legmagasabb oszlop a tipp; a magasságok együtt mindig egy valószínűségi eloszlást adnak.</div>
+  <div class="teach">
+    <div class="lbl"><span>Tanítsd a rajzoddal</span><button id="userClearBtn">saját törlése</button></div>
+    <div class="digitbtns" id="digitbtns"></div>
+    <div id="teachStatus">rajzolj, majd kattints a helyes jelre</div>
+    <div class="miniExplain"><b>Saját minta:</b> ha a helyes számra vagy betűre kattintasz, a rajzod bekerül a tanítóhalmazba. A minta többszörözve kap súlyt, hogy a kis személyes javítás is érezhető legyen.</div>
+  </div>
+</div>
+
+<!-- TRAIN -->
+<div class="panel" id="trainPanel">
+  <h2>Tanulási folyamat</h2>
+  <p class="panelIntro">A tanítás mini-batchekkel fut: a háló sok apró példán mér hibát, majd visszaterjesztéssel módosítja a súlyokat.</p>
+  <div class="labelbar"><b>4. Hiba és javulás</b><span>élő görbe</span></div>
+  <canvas id="chart" width="220" height="96"></canvas>
+  <div class="chartleg"><span><i style="background:#ff9a3c"></i>Loss</span><span><i style="background:#67f0ff"></i>Pontosság</span></div>
+  <div class="metrics"><span>Lépés <span class="v" id="m-step">0</span></span><span>Loss <span class="v am" id="m-loss">—</span></span><span>Acc <span class="v" id="m-acc">—</span></span></div>
+  <div class="miniExplain"><b>Loss:</b> mennyire “fáj” a tévedés a helyes címkéhez képest. <b>Pontosság:</b> a batchen belüli találati arány. Jó tanulásnál a loss csökken, a pontosság emelkedik.</div>
+  <div class="labelbar"><b>5. Tanulási ráta</b><span>η lépésméret</span></div>
+  <div class="slider">η<input type="range" id="lr" min="0.02" max="0.8" step="0.02" value="0.3"><span class="v" id="lrv">0.30</span></div>
+  <div class="hintline"><b>Kis η:</b> lassabb, stabilabb. <b>Nagy η:</b> gyorsabb, de könnyebben túllő a jó súlyokon.</div>
+  <div class="row">
+    <button class="btn" id="trainBtn">▶ Tanítás</button>
+    <button class="btn" id="resetBtn">Súlyok null.</button>
+  </div>
+  <div class="row"><button class="btn" id="regenBtn">Új szintetikus halmaz</button></div>
+  <div class="labelbar"><b>6. Adatforrás</b><span>tanító példák</span></div>
+  <div class="srcrow">
+    <button class="btn on" id="srcSynBtn">0-9 + A-Z</button>
+    <button class="btn" id="srcLettersBtn">Csak A-Z</button>
+  </div>
+  <div id="srcInfo">Forrás: <b>0-9 + A-Z</b> · 1800 + 0 saját</div>
+  <div class="miniExplain"><b>Szintetikus:</b> betűtípusokból generált számok és nagybetűk zajjal, forgatással és eltolással. A “Csak A-Z” mód akkor jó, ha a betűfelismerést akarod külön gyakorolni.</div>
+</div>
+
+<div class="legend"><span><span class="dot b"></span>Pozitív súly</span><span><span class="dot a"></span>Negatív súly</span></div>
+
+<div class="modal" id="helpModal" aria-hidden="true">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <button class="closex" id="closeHelp" aria-label="Bezárás">×</button>
+    <h3 id="helpTitle">Mély magyarázat</h3>
+    <div class="subt">Mit csinál a szám- és betűfelismerő háló az első pixeltől az utolsó súlyfrissítésig?</div>
+
+    <h4>1. Bemenet: rajzból jelvektor</h4>
+    <p>A bal oldali vászon 280×280 pixeles, de a háló ennél sokkal kisebb bemenetet kap. A program megkeresi a fehér vonalak tömegközéppontját, középre húzza a rajzot, majd 14×14 cellára átlagolja. Így lesz a rajzból <b>196 darab 0-1 közötti érték</b>.</p>
+    <p class="k">Ez azért fontos, mert a neurális háló nem betűformákat “néz”, hanem számsorozatot. Egy A, egy 7 vagy egy S attól lesz felismerhető, hogy bizonyos felső, ferde, kerek és üres régiók együtt aktiválódnak.</p>
+
+    <h4>2. Előre számítás: súlyozott összegek</h4>
+    <p>Minden neuron az előző réteg értékeiből számol: megszorozza őket a kapcsolatsúlyokkal, hozzáad egy bias értéket, majd aktivációt ad ki. A rejtett rétegekben <b>ReLU</b> fut, vagyis a negatív jelek lenullázódnak, a pozitív minták továbbmennek.</p>
+    <div class="eq">aktiváció = ReLU(súlyok × bemenet + bias)</div>
+
+    <h4>3. Rétegek: 196 → 48 → 32 → 36</h4>
+    <p>A 196 bemeneti neuron a pixeleket képviseli. A 48-as és 32-es rejtett réteg már nem közvetlen pixeleket, hanem tanult mintázatokat kombinál: vonásokat, üres helyeket, kanyarokat, arányokat. A 36 kimeneti neuron a 0-9 számjegyekhez és az A-Z nagybetűkhöz tartozik.</p>
+    <p class="k">A középső 3D nézetben a fényes pontok az aktív neuronok, a vonalak pedig a súlyok. A cián kapcsolat erősítő, a narancs gátló hatású az adott irányban.</p>
+
+    <h4>4. Softmax: tippből valószínűség</h4>
+    <p>A végén a softmax a harminchat nyers kimenetet összehasonlítható eséllyé alakítja. Ezért a bal oldali sávok nem külön-külön pontszámok, hanem egy közös eloszlás: ha az egyik jel esélye nő, a többiek összesített tere csökken.</p>
+
+    <h4>5. Tanítás: loss, backprop, SGD</h4>
+    <p>Tanításkor a háló vesz egy mini-batch példacsomagot, tippel, majd megnézi, mennyire tér el a helyes címkétől. A <b>cross-entropy loss</b> nagy büntetést ad, ha a helyes számra vagy betűre alacsony esélyt tett. A backpropagation kiszámolja, melyik súly mennyit rontott vagy javított, az SGD pedig egy kicsit módosít rajtuk.</p>
+    <div class="eq">új súly = régi súly - η × gradiens</div>
+
+    <h4>6. A grafikon értelmezése</h4>
+    <p>A narancs loss görbe akkor jó, ha lefelé tart. A cián pontosság akkor jó, ha felfelé megy. Ha a loss ugrál, az lehet túl nagy tanulási ráta, nehéz batch vagy kevés/ellentmondásos adat. Ha a pontosság magas, de a saját rajzod rossz, akkor a tananyag és a te írásmódod között van eltérés.</p>
+
+    <h4>7. Saját rajzzal tanítás</h4>
+    <p>Amikor a helyes számra vagy betűre kattintasz, a rajzod bekerül a tanítóhalmazba. A program a saját mintákat többször szerepelteti, hogy ne vesszenek el a sok alapminta között. Ettől a háló fokozatosan alkalmazkodik a te vonásaidhoz, főleg ha utána fut a tanítás.</p>
+
+    <h4>8. Adatforrások</h4>
+    <p>A szintetikus halmaz gyors és offline-szerű: betűtípusokból, eltolásból, forgatásból és zajból készül. A V2 alapból vegyes 0-9+A-Z tananyagot generál, de átkapcsolható csak betűkre is. A betűk között több az összetéveszthető pár: 0/O, 1/I, 2/Z vagy 5/S. Pont ettől lesz tanulságos.</p>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls }   from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer }  from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass }      from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass }      from 'three/addons/postprocessing/OutputPass.js';
+import GUI                 from 'lil-gui';
+
+const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || matchMedia('(pointer:coarse)').matches;
+
+/* ═══════════════ 1. NEURAL NETWORK (pure JS MLP) ═══════════════ */
+const LABELS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+const ALL_IDS = LABELS.map((_,i)=>i);
+const LETTER_IDS = LABELS.map((_,i)=>i).filter(i=>i>=10);
+const CLASS_COUNT = LABELS.length;
+const sizes = [196, 48, 32, CLASS_COUNT]; // 14×14 input · 2 hidden · 10 digits + 26 letters
+let W=[], b=[], gW=[], gB=[];
+
+function initWeights(){
+  W=[]; b=[]; gW=[]; gB=[];
+  for(let l=0;l<sizes.length-1;l++){
+    const inN=sizes[l], outN=sizes[l+1];
+    const w=new Float32Array(inN*outN);
+    const lim=Math.sqrt(6/inN);          // He-style init
+    for(let k=0;k<w.length;k++) w[k]=(Math.random()*2-1)*lim;
+    W.push(w); b.push(new Float32Array(outN));
+    gW.push(new Float32Array(inN*outN)); gB.push(new Float32Array(outN));
+  }
+}
+function softmax(z){
+  let m=-1e9; for(const v of z) if(v>m)m=v;
+  let s=0; const o=new Float32Array(z.length);
+  for(let i=0;i<z.length;i++){ o[i]=Math.exp(z[i]-m); s+=o[i]; }
+  for(let i=0;i<z.length;i++) o[i]/=s; return o;
+}
+function forward(x){
+  const acts=[x]; let a=x;
+  for(let l=0;l<W.length;l++){
+    const inN=sizes[l], outN=sizes[l+1], z=new Float32Array(outN);
+    for(let j=0;j<outN;j++){ let s=b[l][j]; const base=j*inN; for(let i=0;i<inN;i++) s+=W[l][base+i]*a[i]; z[j]=s; }
+    let out;
+    if(l===W.length-1) out=softmax(z);
+    else { out=new Float32Array(outN); for(let j=0;j<outN;j++) out[j]=Math.max(0,z[j]); }
+    acts.push(out); a=out;
+  }
+  return acts;
+}
+function argmax(a){ let mi=0,mv=a[0]; for(let i=1;i<a.length;i++) if(a[i]>mv){mv=a[i];mi=i;} return mi; }
+
+function trainBatch(bs, lr){
+  for(let l=0;l<W.length;l++){ gW[l].fill(0); gB[l].fill(0); }
+  let loss=0, correct=0;
+  for(let s=0;s<bs;s++){
+    const idx=(Math.random()*trainX.length)|0;
+    const acts=forward(trainX[idx]); const out=acts[acts.length-1]; const y=trainY[idx];
+    loss += -Math.log(out[y]+1e-9); if(argmax(out)===y) correct++;
+    let delta=Float32Array.from(out); delta[y]-=1;
+    for(let l=W.length-1;l>=0;l--){
+      const inN=sizes[l], outN=sizes[l+1], aprev=acts[l];
+      for(let j=0;j<outN;j++){ const dj=delta[j]; gB[l][j]+=dj; const base=j*inN; for(let i=0;i<inN;i++) gW[l][base+i]+=dj*aprev[i]; }
+      if(l>0){ const nd=new Float32Array(inN);
+        for(let i=0;i<inN;i++){ let acc=0; for(let j=0;j<outN;j++) acc+=delta[j]*W[l][j*inN+i]; nd[i]=aprev[i]>0?acc:0; }
+        delta=nd; }
+    }
+  }
+  const sc=lr/bs;
+  for(let l=0;l<W.length;l++){
+    const w=W[l],g=gW[l]; for(let k=0;k<w.length;k++) w[k]-=sc*g[k];
+    const bb=b[l],gb=gB[l]; for(let k=0;k<bb.length;k++) bb[k]-=sc*gb[k];
+  }
+  return { loss:loss/bs, acc:correct/bs };
+}
+
+/* ═══════════════ 2. TRAINING DATA ═══════════════ */
+let trainX=[], trainY=[];           // active set fed to SGD
+let baseX=[], baseY=[];             // synthetic generated classes
+let userX=[], userY=[];             // samples the user teaches by drawing
+let srcLabel='0-9 + A-Z';
+let currentClassIds=ALL_IDS.slice();
+const USER_REP=8;                   // weight user samples so they actually bite
+const gen=document.createElement('canvas'); gen.width=gen.height=280; const gctx=gen.getContext('2d',{willReadFrequently:true});
+const FONTS=['Georgia','"Times New Roman"','Arial','"Courier New"','Verdana','Tahoma','"Chakra Petch"'];
+const R=(a,b)=>a+Math.random()*(b-a);
+
+function rasterTo14(ctx){
+  const S=280, img=ctx.getImageData(0,0,S,S).data, g=new Float32Array(S*S);
+  let sum=0,cx=0,cy=0;
+  for(let y=0;y<S;y++)for(let x=0;x<S;x++){ const v=img[(y*S+x)*4]/255; g[y*S+x]=v; sum+=v; cx+=x*v; cy+=y*v; }
+  let sx=0,sy=0; if(sum>1){ cx/=sum; cy/=sum; sx=Math.round(S/2-cx); sy=Math.round(S/2-cy); }
+  const out=new Float32Array(196), blk=S/14;
+  for(let oy=0;oy<14;oy++)for(let ox=0;ox<14;ox++){
+    let acc=0,c=0;
+    for(let by=0;by<blk;by++)for(let bx=0;bx<blk;bx++){
+      const px=Math.floor(ox*blk+bx)-sx, py=Math.floor(oy*blk+by)-sy;
+      if(px>=0&&px<S&&py>=0&&py<S){ acc+=g[py*S+px]; c++; }
+    }
+    out[oy*14+ox]=c?acc/c:0;
+  }
+  let mx=0; for(const v of out) if(v>mx)mx=v; if(mx>0.01) for(let i=0;i<196;i++) out[i]/=mx;
+  return out;
+}
+function genSample(classId){
+  const glyph=LABELS[classId];
+  gctx.fillStyle='#000'; gctx.fillRect(0,0,280,280);
+  gctx.save(); gctx.translate(140+R(-26,26),140+R(-26,26)); gctx.rotate(R(-.22,.22));
+  const wide=/[MW]/.test(glyph), letter=/[A-Z]/.test(glyph);
+  const size=wide?R(122,165):(letter?R(138,194):R(150,215));
+  gctx.font=`bold ${size|0}px ${FONTS[(Math.random()*FONTS.length)|0]}`;
+  gctx.fillStyle='#fff'; gctx.textAlign='center'; gctx.textBaseline='middle'; gctx.fillText(glyph,0,R(-2,8));
+  gctx.restore();
+  const v=rasterTo14(gctx);
+  for(let i=0;i<196;i++){ v[i]=Math.min(1,Math.max(0,v[i]+R(-.05,.05))); }  // light noise
+  return v;
+}
+function buildSynthetic(perClass=50, classIds=currentClassIds, label=srcLabel){
+  currentClassIds=classIds.slice(); srcLabel=label;
+  baseX=[]; baseY=[];
+  for(const classId of currentClassIds) for(let n=0;n<perClass;n++){ baseX.push(genSample(classId)); baseY.push(classId); }
+  markSrc(srcLabel==='csak A-Z'?'letters':'syn'); rebuildTrain();
+}
+function rebuildTrain(){
+  trainX=baseX.slice(); trainY=baseY.slice();
+  for(let r=0;r<USER_REP;r++) for(let i=0;i<userX.length;i++){ trainX.push(userX[i]); trainY.push(userY[i]); }
+  document.getElementById('s-data').textContent=trainX.length;
+  updateSrcInfo();
+}
+function updateSrcInfo(){
+  const el=document.getElementById('srcInfo'); if(el) el.innerHTML=`Forrás: <b>${srcLabel}</b> · ${baseX.length} + ${userX.length} saját`;
+  const uc=document.getElementById('userCount'); if(uc) uc.textContent=userX.length;
+}
+function markSrc(which){
+  const a=document.getElementById('srcSynBtn'), b=document.getElementById('srcLettersBtn');
+  if(a&&b){ a.classList.toggle('on',which==='syn'); b.classList.toggle('on',which==='letters'); }
+}
+
+/* ═══════════════ 3. THREE.JS SCENE ═══════════════ */
+const canvas=document.getElementById('scene');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:!isMobile,powerPreference:'high-performance'});
+renderer.setPixelRatio(Math.min(devicePixelRatio,isMobile?1.5:2)); renderer.setSize(innerWidth,innerHeight);
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+const scene=new THREE.Scene(); scene.fog=new THREE.FogExp2(0x04060c,0.016);
+const camera=new THREE.PerspectiveCamera(52,innerWidth/innerHeight,0.1,400); camera.position.set(22,8,26);
+const controls=new OrbitControls(camera,canvas);
+controls.enableDamping=true; controls.dampingFactor=.06; controls.minDistance=10; controls.maxDistance=90; controls.autoRotateSpeed=.4;
+scene.add(new THREE.AmbientLight(0x223355,.6));
+(function stars(){ const N=1200,p=new Float32Array(N*3); for(let i=0;i<N;i++){const r=60+Math.random()*120,th=Math.random()*6.28,ph=Math.acos(2*Math.random()-1);p[i*3]=r*Math.sin(ph)*Math.cos(th);p[i*3+1]=r*Math.sin(ph)*Math.sin(th);p[i*3+2]=r*Math.cos(ph);} const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(p,3)); const pts=new THREE.Points(g,new THREE.PointsMaterial({size:.45,color:0x35628f,transparent:true,opacity:.5,depthWrite:false}));scene.add(pts);scene.userData.stars=pts; })();
+
+const composer=new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene,camera));
+const bloom=new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight),isMobile?0.7:1.2,0.5,0.5);
+composer.addPass(bloom); composer.addPass(new OutputPass());
+
+const vis={ bloom:!isMobile, autoRotate:true, showSynapses:true, neuronSize:.32 };
+
+/* ---- build geometry from the network ---- */
+let neuronMesh, synapses, synColors, synPositions;
+let basePos=[], nLayer=[], layerGlobal=[], aDisp=[];
+let lineLayer=[], lineI=[], lineJ=[], synN=0, neuronN=0;
+const dummy=new THREE.Object3D(), tmp=new THREE.Color();
+const COL={ cyDim:new THREE.Color(0x0a2238), cyHot:new THREE.Color(0x67f0ff),
+            amHot:new THREE.Color(0xffac4d),
+            wPosD:new THREE.Color(0x0a2440), wPosH:new THREE.Color(0x3fbfff),
+            wNegD:new THREE.Color(0x301402), wNegH:new THREE.Color(0xff9a3c) };
+
+function buildGeometry(){
+  if(neuronMesh){scene.remove(neuronMesh);neuronMesh.geometry.dispose();neuronMesh.material.dispose();}
+  if(synapses){scene.remove(synapses);synapses.geometry.dispose();synapses.material.dispose();}
+  basePos=[]; nLayer=[]; layerGlobal=[]; aDisp=[];
+  const gap=8.2, span=(sizes.length-1)*gap; let gi=0;
+  for(let l=0;l<sizes.length;l++){
+    const n=sizes[l], cols=Math.ceil(Math.sqrt(n)), rows=Math.ceil(n/cols);
+    const sp = l===0?0.95:1.7, ids=[];
+    for(let i=0;i<n;i++){
+      const row=Math.floor(i/cols), col=i%cols;
+      basePos.push(new THREE.Vector3(l*gap-span/2,(row-(rows-1)/2)*sp,(col-(cols-1)/2)*sp));
+      nLayer.push(l); aDisp.push(0.12); ids.push(gi++);
+    }
+    layerGlobal.push(ids);
+  }
+  neuronN=basePos.length;
+  neuronMesh=new THREE.InstancedMesh(new THREE.SphereGeometry(1,12,12),new THREE.MeshBasicMaterial({toneMapped:false}),neuronN);
+  neuronMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  for(let i=0;i<neuronN;i++){ dummy.position.copy(basePos[i]); dummy.scale.setScalar(sz(i)); dummy.updateMatrix(); neuronMesh.setMatrixAt(i,dummy.matrix); neuronMesh.setColorAt(i,COL.cyDim); }
+  scene.add(neuronMesh);
+
+  lineLayer=[]; lineI=[]; lineJ=[]; const verts=[];
+  for(let l=0;l<sizes.length-1;l++){ const A=layerGlobal[l],B=layerGlobal[l+1];
+    for(let i=0;i<A.length;i++)for(let j=0;j<B.length;j++){
+      const pa=basePos[A[i]],pb=basePos[B[j]]; verts.push(pa.x,pa.y,pa.z,pb.x,pb.y,pb.z);
+      lineLayer.push(l); lineI.push(i); lineJ.push(j);
+    }}
+  synN=lineLayer.length;
+  const sg=new THREE.BufferGeometry();
+  synPositions=new Float32Array(verts); sg.setAttribute('position',new THREE.BufferAttribute(synPositions,3));
+  synColors=new Float32Array(synN*6); sg.setAttribute('color',new THREE.BufferAttribute(synColors,3));
+  synapses=new THREE.LineSegments(sg,new THREE.LineBasicMaterial({vertexColors:true,transparent:true,opacity:.5,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}));
+  synapses.visible=vis.showSynapses; scene.add(synapses);
+}
+function sz(i){ return (nLayer[i]===0?vis.neuronSize*0.72:vis.neuronSize)*(0.7+aDisp[i]*0.85); }
+
+let predGlobal=-1;
+function refreshNeurons(){
+  for(let i=0;i<neuronN;i++){
+    const v=aDisp[i];
+    if(i===predGlobal) tmp.copy(COL.amHot).multiplyScalar(0.6+v*2.2);
+    else { tmp.copy(COL.cyDim).lerp(COL.cyHot,v); tmp.multiplyScalar(0.4+v*1.9); }
+    neuronMesh.setColorAt(i,tmp);
+    dummy.position.copy(basePos[i]); dummy.scale.setScalar(sz(i)); dummy.updateMatrix(); neuronMesh.setMatrixAt(i,dummy.matrix);
+  }
+  neuronMesh.instanceColor.needsUpdate=true; neuronMesh.instanceMatrix.needsUpdate=true;
+}
+function refreshSynapses(){
+  if(!synapses.visible) return;
+  const wMax=W.map(w=>{let m=1e-6;for(const x of w)if(Math.abs(x)>m)m=Math.abs(x);return m;});
+  for(let k=0;k<synN;k++){
+    const l=lineLayer[k], w=W[l][lineJ[k]*sizes[l]+lineI[k]], mag=Math.min(1,Math.abs(w)/wMax[l]);
+    const srcA=aDisp[layerGlobal[l][lineI[k]]];
+    const br=mag*(0.18+1.0*srcA);
+    if(w>0) tmp.copy(COL.wPosD).lerp(COL.wPosH,mag); else tmp.copy(COL.wNegD).lerp(COL.wNegH,mag);
+    tmp.multiplyScalar(0.06+br*1.25);
+    const o=k*6; synColors[o]=tmp.r;synColors[o+1]=tmp.g;synColors[o+2]=tmp.b;synColors[o+3]=tmp.r;synColors[o+4]=tmp.g;synColors[o+5]=tmp.b;
+  }
+  synapses.geometry.attributes.color.needsUpdate=true;
+}
+
+/* ---- run inference on an input vector ---- */
+function setActivations(acts){
+  // normalize per layer for display
+  for(let l=0;l<acts.length;l++){
+    let mx=1e-6; for(const v of acts[l]) if(v>mx)mx=v;
+    const ids=layerGlobal[l];
+    for(let i=0;i<ids.length;i++) aDisp[ids[i]] = Math.min(1, acts[l][i]/mx);
+  }
+}
+let currentInput=null;
+function recognize(x){
+  currentInput=x; const acts=forward(x); const out=acts[acts.length-1];
+  setActivations(acts);
+  const p=argmax(out); predGlobal=layerGlobal[sizes.length-1][p];
+  refreshNeurons(); refreshSynapses();
+  // HUD
+  document.getElementById('predNum').textContent=LABELS[p];
+  document.getElementById('predConf').textContent=(out[p]*100).toFixed(1)+'% biztos';
+  for(let d=0;d<CLASS_COUNT;d++){ const el=barEls[d]; el.fill.style.setProperty('--p',Math.max(0.02,out[d]).toFixed(3)); el.wrap.classList.toggle('win',d===p); }
+  drawPreview(x);
+}
+function clearActivations(){ for(let i=0;i<neuronN;i++) aDisp[i]=0.12; predGlobal=-1; refreshNeurons(); refreshSynapses(); }
+
+/* ═══════════════ 4. DRAWING PAD ═══════════════ */
+const pad=document.getElementById('pad'), pctx=pad.getContext('2d',{willReadFrequently:true});
+function clearPad(){ pctx.fillStyle='#02040a'; pctx.fillRect(0,0,280,280); }
+clearPad();
+let drawing=false,lastX=0,lastY=0;
+function padPos(e){ const r=pad.getBoundingClientRect(); const t=e.touches?e.touches[0]:e; return [ (t.clientX-r.left)/r.width*280, (t.clientY-r.top)/r.height*280 ]; }
+function strokeTo(x,y){ pctx.strokeStyle='#fff'; pctx.lineWidth=20; pctx.lineCap='round'; pctx.lineJoin='round'; pctx.beginPath(); pctx.moveTo(lastX,lastY); pctx.lineTo(x,y); pctx.stroke(); lastX=x;lastY=y; }
+function startDraw(e){ e.preventDefault(); drawing=true; [lastX,lastY]=padPos(e); strokeTo(lastX+.1,lastY+.1); }
+function moveDraw(e){ if(!drawing)return; e.preventDefault(); const[x,y]=padPos(e); strokeTo(x,y); recognize(rasterTo14(pctx)); }
+function endDraw(){ if(!drawing)return; drawing=false; recognize(rasterTo14(pctx)); }
+pad.addEventListener('mousedown',startDraw); pad.addEventListener('mousemove',moveDraw); addEventListener('mouseup',endDraw);
+pad.addEventListener('touchstart',startDraw,{passive:false}); pad.addEventListener('touchmove',moveDraw,{passive:false}); pad.addEventListener('touchend',endDraw);
+document.getElementById('clearBtn').onclick=()=>{ clearPad(); currentInput=null; document.getElementById('predNum').textContent='–'; document.getElementById('predConf').textContent='rajzolj jelet'; barEls.forEach(b=>{b.fill.style.setProperty('--p','0');b.wrap.classList.remove('win');}); clearActivations(); };
+
+const prev=document.getElementById('preview14'), prvc=prev.getContext('2d');
+function drawPreview(x){ const id=prvc.createImageData(14,14); for(let i=0;i<196;i++){ const v=Math.round(x[i]*255); id.data[i*4]=v*0.4;id.data[i*4+1]=v;id.data[i*4+2]=v;id.data[i*4+3]=255; } prvc.putImageData(id,0,0); }
+
+// confidence bars
+const barsEl=document.getElementById('bars'), barEls=[];
+for(let d=0;d<CLASS_COUNT;d++){ const w=document.createElement('div');w.className='bar'; const lab=document.createElement('div');lab.className='d';lab.textContent=LABELS[d]; const f=document.createElement('div');f.className='fill'; w.appendChild(lab);w.appendChild(f);barsEl.appendChild(w); barEls.push({wrap:w,fill:f}); }
+
+/* ═══════════════ 5. TRAINING LOOP + CHART ═══════════════ */
+let training=false, step=0, samplesSeen=0, smLoss=3.6, smAcc=0;
+const lossHist=[], accHist=[], HMAX=120;
+const chart=document.getElementById('chart'), cctx=chart.getContext('2d');
+function pushHist(loss,acc){ lossHist.push(loss);accHist.push(acc); if(lossHist.length>HMAX){lossHist.shift();accHist.shift();} }
+function drawChart(){
+  const w=220,h=96; cctx.clearRect(0,0,w,h); cctx.fillStyle='#02040a';cctx.fillRect(0,0,w,h);
+  cctx.strokeStyle='rgba(90,170,255,.1)'; for(let i=1;i<4;i++){cctx.beginPath();cctx.moveTo(0,h*i/4);cctx.lineTo(w,h*i/4);cctx.stroke();}
+  const N=lossHist.length; if(N<2)return; const lmax=Math.max(...lossHist,0.5);
+  cctx.lineWidth=1.6; cctx.strokeStyle='#ff9a3c'; cctx.beginPath();
+  lossHist.forEach((v,i)=>{const x=i/(HMAX-1)*w,y=h-(v/lmax)*h*0.92-3; i?cctx.lineTo(x,y):cctx.moveTo(x,y);}); cctx.stroke();
+  cctx.strokeStyle='#67f0ff'; cctx.beginPath();
+  accHist.forEach((v,i)=>{const x=i/(HMAX-1)*w,y=h-v*h*0.92-3; i?cctx.lineTo(x,y):cctx.moveTo(x,y);}); cctx.stroke();
+}
+const lrSlider=document.getElementById('lr'), lrv=document.getElementById('lrv');
+lrSlider.oninput=()=>lrv.textContent=(+lrSlider.value).toFixed(2);
+const trainBtn=document.getElementById('trainBtn');
+trainBtn.onclick=()=>{ training=!training; trainBtn.textContent=training?'⏸ Szünet':'▶ Tanítás'; };
+document.getElementById('resetBtn').onclick=()=>{ initWeights(); step=0;samplesSeen=0;lossHist.length=0;accHist.length=0;smLoss=3.6;smAcc=0; refreshSynapses(); if(currentInput)recognize(currentInput); else clearActivations(); drawChart(); updateMetrics(); };
+document.getElementById('regenBtn').onclick=()=>{ buildSynthetic(); if(currentInput)recognize(currentInput); };
+
+const srcInfoEl=document.getElementById('srcInfo'), teachStatus=document.getElementById('teachStatus');
+document.getElementById('srcSynBtn').onclick=()=>{ buildSynthetic(50,ALL_IDS,'0-9 + A-Z'); if(currentInput)recognize(currentInput); };
+document.getElementById('srcLettersBtn').onclick=()=>{ buildSynthetic(55,LETTER_IDS,'csak A-Z'); if(currentInput)recognize(currentInput); };
+
+// teach-with-drawing: 36 class buttons
+const digitbtns=document.getElementById('digitbtns');
+let flashT=null;
+function flash(msg){ teachStatus.textContent=msg; clearTimeout(flashT); flashT=setTimeout(()=>teachStatus.textContent='rajzolj, majd kattints a helyes jelre',1600); }
+for(let d=0;d<CLASS_COUNT;d++){ const btn=document.createElement('button'); btn.className='dbtn'; btn.textContent=LABELS[d];
+  btn.onclick=()=>{ if(!currentInput){ flash('⚠ előbb rajzolj egy jelet'); return; }
+    userX.push(Float32Array.from(currentInput)); userY.push(d); rebuildTrain(); flash('✓ minta hozzáadva: '+LABELS[d]); };
+  digitbtns.appendChild(btn);
+}
+document.getElementById('userClearBtn').onclick=()=>{ userX=[]; userY=[]; rebuildTrain(); flash('saját minták törölve'); };
+function updateMetrics(){
+  document.getElementById('s-epoch').textContent=(samplesSeen/Math.max(1,trainX.length)).toFixed(1);
+  document.getElementById('s-loss').textContent=smLoss.toFixed(3);
+  document.getElementById('s-acc').textContent=(smAcc*100).toFixed(1)+'%';
+  document.getElementById('m-step').textContent=step;
+  document.getElementById('m-loss').textContent=smLoss.toFixed(3);
+  document.getElementById('m-acc').textContent=(smAcc*100).toFixed(1)+'%';
+}
+
+/* ═══════════════ HELP MODAL ═══════════════ */
+const helpBtn=document.getElementById('helpBtn');
+const helpModal=document.getElementById('helpModal');
+const closeHelp=document.getElementById('closeHelp');
+function setHelp(open){
+  helpModal.classList.toggle('on',open);
+  helpModal.setAttribute('aria-hidden',open?'false':'true');
+}
+helpBtn.onclick=()=>setHelp(true);
+closeHelp.onclick=()=>setHelp(false);
+helpModal.addEventListener('click',e=>{ if(e.target===helpModal) setHelp(false); });
+addEventListener('keydown',e=>{ if(e.key==='Escape'&&helpModal.classList.contains('on')) setHelp(false); });
+
+/* ═══════════════ 6. GUI (visual tweaks) ═══════════════ */
+const gui=new GUI({title:'VIZUÁL'});
+gui.add(vis,'bloom').name('Bloom (glow)');
+gui.add(bloom,'strength',0,2.5,.05).name('Bloom erő');
+gui.add(vis,'showSynapses').name('Szinapszisok').onChange(v=>{synapses.visible=v; if(v)refreshSynapses();});
+gui.add(vis,'neuronSize',.15,.5,.01).name('Neuron méret').onChange(()=>refreshNeurons());
+gui.add(vis,'autoRotate').name('Auto-forgatás');
+if(isMobile) gui.close();
+
+/* ═══════════════ 7. MAIN LOOP ═══════════════ */
+const clock=new THREE.Clock(); let frames=0,fpsT=0,visT=0;
+function animate(){
+  requestAnimationFrame(animate);
+  const dt=Math.min(clock.getDelta(),0.05);
+  controls.autoRotate=vis.autoRotate; controls.update();
+  if(scene.userData.stars) scene.userData.stars.rotation.y+=dt*0.01;
+
+  if(training){
+    const lr=+lrSlider.value;
+    for(let k=0;k<4;k++){ const r=trainBatch(32,lr); smLoss=smLoss*0.9+r.loss*0.1; smAcc=smAcc*0.9+r.acc*0.1; samplesSeen+=32; step++; }
+    visT+=dt;
+    if(visT>0.12){ visT=0; pushHist(smLoss,smAcc); drawChart(); updateMetrics();
+      if(currentInput) recognize(currentInput); else refreshSynapses(); }
+  }
+
+  if(vis.bloom) composer.render(); else renderer.render(scene,camera);
+  frames++; fpsT+=dt; if(fpsT>=0.5){ document.getElementById('s-fps').textContent=Math.round(frames/fpsT); frames=0;fpsT=0; }
+}
+
+/* ═══════════════ BOOT ═══════════════ */
+initWeights(); buildSynthetic(); buildGeometry(); refreshSynapses(); updateMetrics(); drawChart();
+animate();
+addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); composer.setSize(innerWidth,innerHeight); bloom.resolution.set(innerWidth,innerHeight); });
+setTimeout(()=>document.getElementById('loader').classList.add('hide'),650);
+</script>
+</body>
+</html>
